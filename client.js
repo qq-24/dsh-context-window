@@ -229,6 +229,20 @@ window.__ModuleLoader__.load({
       const [notice, setNotice] = React.useState(null)
       const rootRef = React.useRef(null)
 
+      /**
+       * state 的同步镜像。
+       *
+       * 为什么需要：打开面板时要用「当前已生效的窗口」初始化草稿，但这个动作
+       * 必须只在 open 变化的瞬间发生（见下面那个 effect 的说明）。若直接依赖
+       * state，面板开着时的 2.5s 轮询会把用户草稿清掉——那就是"怎么改都被
+       * 改回当前值"那个 bug。用 ref 读最新值，既能拿到数据又不把 state
+       * 列进依赖数组。
+       */
+      const stateRef = React.useRef(null)
+      React.useEffect(() => {
+        stateRef.current = state
+      }, [state])
+
       /** 拉一次宿主状态。 */
       const reload = React.useCallback(() => {
         if (typeof sessionId !== 'string' || sessionId === '') return
@@ -240,14 +254,41 @@ window.__ModuleLoader__.load({
           .catch((e) => setError(String(e?.message ?? e)))
       }, [sessionId, call])
 
-      // 用户切对话时组件不会自动重挂，所以每秒对一次当前会话 id。
+      /**
+       * 每 1s 对一次当前会话 id；state 还没加载成功时顺便重试。
+       *
+       * 重试是必须的：切换到刚打开的对话时，会话可能还没进 session store，
+       * 这一次 getState 会失败（SESSION_NOT_FOUND）。没有重试就会一直显示
+       * "默认 —"，直到用户手点面板才碰巧重新加载。有重试则 1s 内自愈。
+       * 只在 state===null 时重试，加载成功后不再打 RPC。
+       */
       React.useEffect(() => {
         const timer = setInterval(() => {
           const next = readSessionId()
           setSessionId((prev) => (prev === next ? prev : next))
+          if (stateRef.current === null) reload()
         }, 1000)
         return () => clearInterval(timer)
-      }, [readSessionId])
+      }, [readSessionId, reload])
+
+      /**
+       * 切对话时立刻清掉上一个会话的状态。
+       *
+       * 不清会有两个问题：
+       *   1. 短暂显示**别的对话**的窗口值（state 还是旧会话的）；
+       *   2. 更糟的是——新会话刚打开时可能还没进 session store，首次 getState
+       *      会返回 SESSION_NOT_FOUND，state 一直是 null，胶囊就永远停在
+       *      "默认 —"。用户点一下面板才会重新加载，这时会话已就绪，于是
+       *      出现"什么都不干显示 —，一点击就更新"的现象。
+       *
+       * 本 effect 必须声明在 reload effect **之前**：effects 按声明顺序执行，
+       * 先清旧值再发新请求，避免旧会话的值覆盖新会话的。
+       */
+      React.useEffect(() => {
+        setState(null)
+        setDraft('')
+        setError(null)
+      }, [sessionId])
 
       React.useEffect(() => {
         reload()
@@ -262,12 +303,23 @@ window.__ModuleLoader__.load({
         return () => clearInterval(timer)
       }, [open, reload])
 
-      // 打开时同步草稿值。
+      /**
+       * 打开面板时同步一次草稿值。
+       *
+       * 关键：**只在 `open` 变化时同步，不能依赖 `state`**。
+       * 面板开着的时候有 2.5 秒轮询（用来刷新「模型默认」对比值），
+       * 轮询每次都会 setState → 如果这里依赖 state，就会把用户正在输入的
+       * 数字清回当前设置值——表现为"怎么改都被改回去"。
+       * 用户主动改数字的通道只有滑块 onChange 和数字框 onChange，那两处
+       * 自己管 draft，不需要这里兜。
+       */
       React.useEffect(() => {
         if (!open) return
-        const current = state !== null && typeof state.window === 'number' ? state.window : null
+        const current = stateRef.current !== null && typeof stateRef.current.window === 'number'
+          ? stateRef.current.window
+          : null
         setDraft(current === null ? '' : String(current))
-      }, [open, state])
+      }, [open])
 
       // 点外部关面板（桌面气泡用；手机抽屉有遮罩，走遮罩自己的 handler）。
       React.useEffect(() => {
