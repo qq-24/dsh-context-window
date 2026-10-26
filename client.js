@@ -112,16 +112,32 @@ window.__ModuleLoader__.load({
     /** 移动端断点。 */
     const MOBILE_MAX = 640
 
-    /** 主题变量回退（不同 DSH 版本变量名不完全一致，逐个兜底）。 */
+    /**
+     * 主题取色：全部走 DSH 自己的语义色变量（由 `dsh-client-ui-theme` 定义），
+     * 不自己写死颜色。
+     *
+     * DSH 的深浅色是这样实现的——两套 CSS 规则：
+     *   body                     { --dsw-alias-*: ...浅色值 }
+     *   body[data-ds-dark-theme] { --dsw-alias-*: ...深色值 }
+     * 切主题只是给 body 加/去掉 `data-ds-dark-theme` 属性，变量值自动换。
+     * 所以本插件**不需要监听 theme/change、也不需要判断当前深浅**：
+     * 浏览器在算 `var()` 时自然会用当前生效的那一套。
+     *
+     * 变量名是全量扫 DSH 源码确认真实存在的（规范 `--dsw-alias-<类别>-<角色>`）。
+     * 之前用的 `--dsw-text` / `--dsw-fg` / `--dsw-border` / `--dsw-accent` 等
+     * 是猜的，一个都不存在 → 全部落到硬编码兜底色，那就是"不适配主题"的原因。
+     *
+     * 仍保留硬编码兜底：万一某版本没定义某个变量，至少不会变透明或黑块。
+     */
     const C = {
-      text: 'var(--dsw-text, var(--dsw-fg, #1f2328))',
-      dim: 'var(--dsw-text-secondary, var(--dsw-dim, #6b7280))',
-      border: 'var(--dsw-border, rgba(127,127,127,0.28))',
-      surface: 'var(--dsw-surface, var(--dsw-bg-elevated, #ffffff))',
-      hover: 'var(--dsw-hover-background, rgba(128,128,128,0.10))',
-      accent: 'var(--dsw-accent, #4d6bfe)',
-      warn: 'var(--dsw-warning, #b45309)',
-      danger: 'var(--dsw-danger, #dc2626)',
+      text: 'var(--dsw-alias-label-primary, #1f2328)',
+      dim: 'var(--dsw-alias-label-secondary, var(--dsw-alias-label-dimmed, #6b7280))',
+      border: 'var(--dsw-alias-border-l2, var(--dsw-alias-border-l1, rgba(127,127,127,0.28)))',
+      surface: 'var(--dsw-alias-bg-layer-1, var(--dsw-alias-bg-base, #ffffff))',
+      hover: 'var(--dsw-alias-interactive-bg-hover, rgba(128,128,128,0.10))',
+      accent: 'var(--dsw-alias-state-business-primary, #4d6bfe)',
+      warn: 'var(--dsw-alias-state-warn-label, var(--dsw-alias-state-warn-primary, #b45309))',
+      danger: 'var(--dsw-alias-state-error-primary, #dc2626)',
     }
 
     /**
@@ -595,7 +611,12 @@ window.__ModuleLoader__.load({
             borderRadius: 12,
             border: '1px solid ' + C.border,
             background: C.surface,
-            boxShadow: '0 10px 30px rgba(0,0,0,0.18)',
+            // 阴影直接整段用 DSH 的 elevation token，不要自己拼偏移：
+            // --dsw-elevation-panel 本身就是「描边 + 多层投影」的完整值
+            // （形如 `0 0 0 .5px #fff3, 0 3px 8px 0 #00000008, ...`），
+            // 在前面再加 `0 10px 30px ` 会拼出畸形 shadow，整条声明被 CSS 丢弃
+            // （实测 computed boxShadow 变成 none）。
+            boxShadow: 'var(--dsw-elevation-panel, 0 10px 30px rgba(0,0,0,0.18))',
           },
         },
         body,
@@ -612,7 +633,9 @@ window.__ModuleLoader__.load({
             position: 'fixed',
             inset: 0,
             zIndex: 59,
-            background: 'rgba(0,0,0,0.38)',
+            // 遮罩用 DSH 的 bg-mask 系列（它本身就是按深浅色分别定义的），
+            // 不再写死 rgba(0,0,0,...)——那在深色下会脏得发灰、浅色下又太淡。
+            background: 'var(--dsw-alias-bg-mask-1, var(--dsw-alias-bg-mask-2, rgba(0,0,0,0.38)))',
           },
         }),
         el(
@@ -634,7 +657,7 @@ window.__ModuleLoader__.load({
               border: '1px solid ' + C.border,
               borderBottom: 'none',
               background: C.surface,
-              boxShadow: '0 -10px 30px rgba(0,0,0,0.20)',
+              boxShadow: 'var(--dsw-elevation-prominent, 0 -10px 30px rgba(0,0,0,0.20))',
               maxHeight: '78vh',
               overflowY: 'auto',
               WebkitOverflowScrolling: 'touch',

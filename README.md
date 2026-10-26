@@ -33,11 +33,15 @@ thresholdTokens = floor(contextWindow × thresholdRatio)
 
 ## 截图
 
-### 桌面
+**完全跟随 DSH 自己的深浅色主题，不需要额外设置**——插件只用 DSH 的语义色变量（`--dsw-alias-*`）取色，切主题时由浏览器自动换值，插件不判断当前是深是浅。
 
-输入框右侧出现一个胶囊，点开是锚在按钮上方的气泡面板：
+### 桌面 · 浅色
 
-![桌面端](docs/shot-desktop.png)
+![桌面端 浅色](docs/shot-desktop-light.png)
+
+### 桌面 · 深色
+
+![桌面端 深色](docs/shot-desktop-dark.png)
 
 ### 手机（≤640px）
 
@@ -157,6 +161,34 @@ DSH 核心明确接受插件自定义事件类型（`dsh-session/lib/types/index
 
 **刻意不替换官方 `compaction-basic`**：它是 45KB 实现，含 `assertNoActiveCompaction`、`toolPairingBalancedBefore/After`、`surface replaceGeneration`、checkpoint 约束等不变量，且 `selectCompactableRange` 未从 `dsh-compaction` 导出。抄错的失败形态不是报错，而是"会话看起来正常、恢复时校验失败"。压缩动作始终由官方插件执行，本插件只提供窗口值。
 
+### 主题适配
+
+插件**不自己存任何颜色**，全部从 DSH 的语义色变量取：
+
+```js
+text:    'var(--dsw-alias-label-primary, #1f2328)',
+dim:     'var(--dsw-alias-label-secondary, var(--dsw-alias-label-dimmed, #6b7280))',
+border:  'var(--dsw-alias-border-l2, var(--dsw-alias-border-l1, rgba(127,127,127,0.28)))',
+surface: 'var(--dsw-alias-bg-layer-1, var(--dsw-alias-bg-base, #ffffff))',
+accent:  'var(--dsw-alias-state-business-primary, #4d6bfe)',
+warn:    'var(--dsw-alias-state-warn-label, ...)',
+danger:  'var(--dsw-alias-state-error-primary, #dc2626)',
+```
+
+DSH 的深浅色是这样实现的——两套 CSS 规则，切主题只是给 `body` 加/去掉 `data-ds-dark-theme` 属性：
+
+```css
+body                     { --dsw-alias-bg-base: var(--dsw-static-neutral-bluish-00); }
+body[data-ds-dark-theme] { --dsw-alias-bg-base: var(--dsw-static-neutral-bluish-950); }
+```
+
+所以插件**不需要监听 `theme/change`、也不需要判断当前是深是浅**——`var()` 在计算时自动取当前生效的那套值。
+
+阴影和遮罩同样走主题 token：
+
+- `box-shadow` 直接用 `var(--dsw-elevation-panel)` / `var(--dsw-elevation-prominent)`。它们本身就是"描边 + 多层投影"的完整值（形如 `0 0 0 .5px #fff3, 0 3px 8px 0 #00000008, ...`），**不要**在自己写的偏移后面拼它们——拼出来是畸形 shadow，整条声明会被 CSS 丢弃（实测 computed `boxShadow` 变成 `none`）。
+- 手机抽屉的遮罩用 `var(--dsw-alias-bg-mask-1, ...)`，不写死 `rgba(0,0,0,.38)`——那在深色下脏得发灰。
+
 ---
 
 ## 验证状态
@@ -175,7 +207,8 @@ DSH 核心明确接受插件自定义事件类型（`dsh-session/lib/types/index
 | 手机 UI（390×844 DPR2） | ✅ 胶囊 `ctx 256K`、抽屉、6 档位、`×` 关闭 |
 | **跨刷新持久化** | ✅ 二次探测直接读到上次设的值 |
 | **界面上下文环跟随** | ✅ 日志实证：`request/context` 的 `contextWindow` 为设定值 |
-| 滑块交互契约（拖动不提交 / 把手跟手 / 应用才生效） | ✅ 专用测试 |
+| 滑块交互契约（拖动不提交 / 把手跟手 / 应用才生效） | ✅ 6 项断言全过 |
+| **深浅色主题适配（桌面 + 手机）** | ✅ 强制切两种主题，面板 bg/border/shadow/文字全部随之变化 |
 | zod 解析失败的兜底（不炸启动） | ✅ 无 `node_modules` 目录实测 |
 | **compact 真实提前触发** | ✅ 真实 Web 会话写入 16K，后续 `request/context` 为 16K，官方 `compaction/start → summary → end(success)` 已观察到；触发边界受可压缩区间与固定提示开销影响 |
 
