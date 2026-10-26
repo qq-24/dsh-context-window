@@ -188,7 +188,7 @@ DSH 核心明确接受插件自定义事件类型（`dsh-session/lib/types/index
 - 测试会话的 `context-window/set` 持久化 `16000`（`ignorable: true`）；压力回合及后续短回合的 `request/context`（seq62/79/107/133）`contextWindow` 均为 `16000`。
 - 官方自动压缩真实记录了 `compaction/start → compaction/summary → compaction/end` 成功，证明会话覆盖已进入官方 compact 路径。
 - 用当前版本生产 `dsh-token-meter` 对日志重放：在只有约 `2,574` surface tokens、保留预算 `2,560` 时，虽总压力已超过名义阈值，仍没有可切掉的前缀；增加一条长消息后 surface 扩大，才选中约 `2,574` tokens 的历史并完成 compact。因此**首次 compact 事件可以晚于 12,800**，不能只凭 UI 环的整数或用户输入字符数判断阈值是否生效。
-- compact 后以生产 `TokenMeter.measure` 重放，保守的不可压缩压力下界约 `21,624` tokens；后续 turn 下界约 `24,517`，都高于 `12,800`。官方引擎因此又对极小 span 做了一次有界无收益尝试（summary 未变短）；下一条短 turn 又观察到“成功 summary + 一次小 span 拒绝”，但原生日志有 `turn/end`，没有阻塞后续 prompt。此结果只证明当前 16K profile 下连续两轮出现该模式，不代表无限重试。当前 profile 的 fixed prompt/tool 开销已经高于 `16K × 0.8`，所以 `16K` 是诊断用的小窗口，不适合作为该 profile 的稳定日常设置。
+- compact 后以生产 `TokenMeter.measure` 重放，在这个测试会话的当前 anchor 下，保守的非-surface 压力下界约 `21,624` tokens；下一 turn 的下界约 `24,517`，都高于 `12,800`。官方引擎因此又对极小 span 做了一次有界无收益尝试（summary 未变短）；下一条短 turn 又观察到“成功 summary + 一次小 span 拒绝”，但原生日志有 `turn/end`，没有阻塞后续 prompt。此结果只证明该 session 的连续两轮行为，不代表无限重试，也不是所有会话共用的固定常数。这个 `16K` 测试点低于该 session 测得的当前上下文底座；真实使用应按自己的 preset、工具和注入提示调到高于该 session 的不可压缩部分。
 
 `800K × 0.8 = 640K` 是模型默认窗口下的名义阈值；本次没有另做灌到 `640K` 的默认窗口对照，因此这里只报告公式，不把它说成已实测的对照结果。
 
@@ -260,7 +260,7 @@ dsh plugin --profile web remove dsh-context-window
 2. **每次请求多写一条 `request/context`**。这是双端 patch 的代价（见上文），事件很小，但日志体积会略微增长。
 3. **子代理会话**：`agent/pre-step` 对所有 agent 生效，所以子代理也会读到自己会话的覆盖值（通常子代理没有覆盖，走模型默认，行为不变）。
 4. **`/compact` 手动命令不受影响**：手动压缩不看阈值，直接压。
-5. **窗口不要低于本会话不可压缩的固定开销**：system prompt、工具 schema 和 retain budget 有一部分不能被摘要消掉。若 `floor(contextWindow × thresholdRatio)` 小于这部分开销，官方 compact 仍会找可压缩前缀；压完若仍超线，可能再对很小的尾段尝试一次，并以“summary not smaller”结束。自动压缩不会因此拦住后续 prompt，但会增加无收益压缩尝试；应把窗口调到固定开销之上。该下限依当前 Agent preset、工具和注入提示而变。
+5. **窗口不要低于当前会话的不可压缩底座**：system prompt、工具 schema、request envelope 与 retain budget 的组成依会话而异。若 `floor(contextWindow × thresholdRatio)` 低于该会话能达到的底座，官方 compact 仍会尝试可压缩前缀；压完若仍超线，可能再对很小的尾段尝试一次，并以“summary not smaller”结束。自动压缩不会因此拦住后续 prompt，但会增加无收益压缩尝试；应按该会话实际 prompt/tool 开销设置窗口。本机16K实测只是一个具体 session 的结果，不是全 profile 固定常数。
 
 ---
 
