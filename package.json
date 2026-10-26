@@ -1,0 +1,58 @@
+{
+  "name": "dsh-context-window",
+  "version": "1.0.0",
+  "description": "每个对话一个独立的上下文窗口：不改 settings 里的模型配置，在会话日志里存一份覆盖值，切换对话/重开都保留，并即时改变 DSH 自动 compact 的触发线与界面上下文环。",
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./typert": "./typert.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "typert.js",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE",
+    "docs"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "scripts": {
+    "check": "node --check index.js && node --check client.js && node --check typert.js"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "context-window",
+    "compaction",
+    "compact",
+    "per-conversation"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/qq-24/dsh-context-window.git"
+  },
+  "homepage": "https://github.com/qq-24/dsh-context-window",
+  "bugs": {
+    "url": "https://github.com/qq-24/dsh-context-window/issues"
+  }
+}
