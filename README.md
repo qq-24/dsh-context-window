@@ -177,16 +177,20 @@ DSH 核心明确接受插件自定义事件类型（`dsh-session/lib/types/index
 | **界面上下文环跟随** | ✅ 日志实证：`request/context` 的 `contextWindow` 为设定值 |
 | 滑块交互契约（拖动不提交 / 把手跟手 / 应用才生效） | ✅ 专用测试 |
 | zod 解析失败的兜底（不炸启动） | ✅ 无 `node_modules` 目录实测 |
-| **compact 真实提前触发** | ⬜ 机制已被集成断言覆盖；真实触发需长对话观察 |
+| **compact 真实提前触发** | ✅ 真实 Web 会话写入 16K，后续 `request/context` 为 16K，官方 `compaction/start → summary → end(success)` 已观察到；触发边界受可压缩区间与固定提示开销影响 |
 
 ### 亲眼确认 compact 线动了
 
-挑一个不重要的对话，把窗口设成 `16K`，连发几条长消息：
+触发线的计算是 `floor(contextWindow × thresholdRatio)`；默认 ratio 为 `0.8`，因此 `16K` 的名义阈值是 `12,800` tokens。**达到阈值是必要条件，但不是充分条件**：官方 `compaction-basic` 还必须找到可压缩的历史前缀，并保留 `retainTokens`；system prompt、工具定义等固定开销不能靠摘要消掉。
 
-- **生效**：DSH 自带用量计走到约 `13K`（16K × 0.8）就触发压缩
-- **没生效**：一直涨到几十 K 都没压缩
+本机真实 Web 验收结果：
 
-对照组：同一个模型在别的对话里要等到 `800K`（1M × 0.8）才压缩。两边一对比就确定覆盖真的进了判定路径。
+- 测试会话的 `context-window/set` 持久化 `16000`（`ignorable: true`）；压力回合及后续短回合的 `request/context`（seq62/79/107/133）`contextWindow` 均为 `16000`。
+- 官方自动压缩真实记录了 `compaction/start → compaction/summary → compaction/end` 成功，证明会话覆盖已进入官方 compact 路径。
+- 用当前版本生产 `dsh-token-meter` 对日志重放：在只有约 `2,574` surface tokens、保留预算 `2,560` 时，虽总压力已超过名义阈值，仍没有可切掉的前缀；增加一条长消息后 surface 扩大，才选中约 `2,574` tokens 的历史并完成 compact。因此**首次 compact 事件可以晚于 12,800**，不能只凭 UI 环的整数或用户输入字符数判断阈值是否生效。
+- compact 后以生产 `TokenMeter.measure` 重放，保守的不可压缩压力下界约 `21,624` tokens；后续 turn 下界约 `24,517`，都高于 `12,800`。官方引擎因此又对极小 span 做了一次有界无收益尝试（summary 未变短）；下一条短 turn 又观察到“成功 summary + 一次小 span 拒绝”，但原生日志有 `turn/end`，没有阻塞后续 prompt。此结果只证明当前 16K profile 下连续两轮出现该模式，不代表无限重试。当前 profile 的 fixed prompt/tool 开销已经高于 `16K × 0.8`，所以 `16K` 是诊断用的小窗口，不适合作为该 profile 的稳定日常设置。
+
+`800K × 0.8 = 640K` 是模型默认窗口下的名义阈值；本次没有另做灌到 `640K` 的默认窗口对照，因此这里只报告公式，不把它说成已实测的对照结果。
 
 ---
 
@@ -256,6 +260,7 @@ dsh plugin --profile web remove dsh-context-window
 2. **每次请求多写一条 `request/context`**。这是双端 patch 的代价（见上文），事件很小，但日志体积会略微增长。
 3. **子代理会话**：`agent/pre-step` 对所有 agent 生效，所以子代理也会读到自己会话的覆盖值（通常子代理没有覆盖，走模型默认，行为不变）。
 4. **`/compact` 手动命令不受影响**：手动压缩不看阈值，直接压。
+5. **窗口不要低于本会话不可压缩的固定开销**：system prompt、工具 schema 和 retain budget 有一部分不能被摘要消掉。若 `floor(contextWindow × thresholdRatio)` 小于这部分开销，官方 compact 仍会找可压缩前缀；压完若仍超线，可能再对很小的尾段尝试一次，并以“summary not smaller”结束。自动压缩不会因此拦住后续 prompt，但会增加无收益压缩尝试；应把窗口调到固定开销之上。该下限依当前 Agent preset、工具和注入提示而变。
 
 ---
 
